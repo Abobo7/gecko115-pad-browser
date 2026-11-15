@@ -12,11 +12,24 @@ SDK_DIR="D:/Github/.android-sdk"
 BT_DIR="$SDK_DIR/build-tools/35.0.0"
 ANDROID_JAR="$SDK_DIR/platforms/android-35/android.jar"
 
-GV_AAR="D:/tmp/browsers/gv115.aar"
-GV_EXO_AAR="D:/tmp/browsers/gv115-exo2.aar"
-SNAKEYAML_JAR="D:/tmp/browsers/snakeyaml-2.0.jar"
+GV_VER="115.0.20230726201356"
+CACHE_DIR="D:/tmp/browsers"
+GV_AAR="$CACHE_DIR/gv115.aar"
+GV_EXO_AAR="$CACHE_DIR/gv115-exo2.aar"
+SNAKEYAML_JAR="$CACHE_DIR/snakeyaml-2.0.jar"
 GRADLE_CACHE="C:/Users/Administrator/.gradle/caches/modules-2/files-2.1"
 
+mkdir -p "$CACHE_DIR"
+if [ ! -f "$GV_AAR" ]; then
+  echo "Downloading geckoview-armeabi-v7a-${GV_VER}.aar..."
+  curl -fL --retry 3 -o "$GV_AAR" \
+    "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-armeabi-v7a/${GV_VER}/geckoview-armeabi-v7a-${GV_VER}.aar"
+fi
+if [ ! -f "$GV_EXO_AAR" ]; then
+  echo "Downloading geckoview-exoplayer2-${GV_VER}.aar..."
+  curl -fL --retry 3 -o "$GV_EXO_AAR" \
+    "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-exoplayer2/${GV_VER}/geckoview-exoplayer2-${GV_VER}.aar"
+fi
 if [ ! -f "$SNAKEYAML_JAR" ]; then
   curl -sL -x http://127.0.0.1:10808 --max-time 15 \
     -o "$SNAKEYAML_JAR" \
