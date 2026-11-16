@@ -255,10 +255,35 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                long now = System.currentTimeMillis();
+                if (now - tab.lastCrashAtMs < 10000L) {
+                    tab.crashStreak++;
+                } else {
+                    tab.crashStreak = 1;
+                }
+                tab.lastCrashAtMs = now;
+
+                if (tab.session != null && tab.session.isOpen()) {
+                    tab.session.close();
+                }
+
                 if (tab == getActiveTab() && !tab.isHomePage) {
                     ensureSessionReady(tab);
                     geckoView.setSession(tab.session);
-                    if (tab.savedState != null) {
+                    if (tab.crashStreak >= 2) {
+                        String safeUrl = TextUtils.htmlEncode(tab.url != null ? tab.url : "");
+                        String errHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                                + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                                + "<title>标签页异常恢复</title>"
+                                + "<style>body{font-family:sans-serif;background:#F8FAFC;color:#1E293B;padding:48px 24px;text-align:center;}"
+                                + ".card{max-width:520px;margin:0 auto;background:#FFF;border:1px solid #E2E8F0;border-radius:14px;padding:28px;}"
+                                + "button{margin-top:18px;background:#2563EB;color:#FFF;border:0;border-radius:8px;padding:10px 24px;font-size:14px;}</style>"
+                                + "</head><body><div class='card'><h2>标签页子进程已停止自动重试</h2>"
+                                + "<p style='color:#64748B;font-size:14px;word-break:break-all'>" + safeUrl + "</p>"
+                                + "<button onclick=\"location.href='" + safeUrl + "'\">手动重新加载</button></div></body></html>";
+                        tab.session.loadUri("data:text/html;charset=utf-8," + Uri.encode(errHtml));
+                        Toast.makeText(MainActivity.this, "检测到页面连续异常，已暂停自动重连循环", Toast.LENGTH_SHORT).show();
+                    } else if (tab.savedState != null) {
                         tab.session.restoreState(tab.savedState);
                     } else if (tab.url != null) {
                         tab.session.loadUri(tab.url);

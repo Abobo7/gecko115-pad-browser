@@ -139,6 +139,9 @@ public final class SessionDelegates {
             public void onPageStop(GeckoSession s, boolean success) {
                 tab.isLoading = false;
                 tab.progress = 100;
+                if (success) {
+                    tab.crashStreak = 0;
+                }
                 if (success && !tab.isPrivate && tab.url != null) {
                     store.addHistory(tab.getDisplayTitle(), tab.url);
                 }

@@ -76,6 +76,16 @@ unpack_aar() {
 }
 
 unpack_aar "gv" "$GV_AAR"
+# Strip stock GMS FIDO2-dependent WebAuthnTokenManager from gv.jar so our clean KitKat replacement is used
+mkdir -p "$BUILD_DIR/gv_jar_clean"
+(
+  cd "$BUILD_DIR/gv_jar_clean"
+  "$JDK_BIN/jar.exe" xf "$BUILD_DIR/deps/gv.jar"
+  rm -f org/mozilla/geckoview/WebAuthnTokenManager*.class
+  rm -f "$BUILD_DIR/deps/gv.jar"
+  "$JDK_BIN/jar.exe" cf "$BUILD_DIR/deps/gv.jar" .
+)
+rm -rf "$BUILD_DIR/gv_jar_clean"
 unpack_aar "gv_exo2" "$GV_EXO_AAR"
 unpack_aar "core" "$CORE_AAR"
 unpack_aar "arch_runtime" "$ARCH_RUNTIME_AAR"

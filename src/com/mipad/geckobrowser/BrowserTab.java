@@ -18,6 +18,8 @@ public class BrowserTab {
     public boolean desktopMode;
     public boolean killedInBackground;
     public boolean lazyPendingLoad;
+    public long lastCrashAtMs;
+    public int crashStreak;
     public GeckoSession session;
     public GeckoSession.SessionState savedState;
 

@@ -66,7 +66,10 @@ public final class BrowserApp {
                 injectInitialPref(settings, "gfx.webrender.software", Boolean.TRUE);
             }
 
-            // 3. Silence background telemetry, add-on checks, and RemoteSettings sync spikes on 2GB RAM
+            // 3. Disable Android FIDO2 WebAuthn backend (Android 4.4 lacks GMS FIDO2 APIs; prevents crash on Google Sign-In)
+            injectInitialPref(settings, "security.webauth.webauthn_enable_android_fido2", Boolean.FALSE);
+
+            // 4. Silence background telemetry, add-on checks, and RemoteSettings sync spikes on 2GB RAM
             injectInitialPref(settings, "datareporting.policy.dataSubmissionEnabled", Boolean.FALSE);
             injectInitialPref(settings, "extensions.systemAddon.update.enabled", Boolean.FALSE);
             injectInitialPref(settings, "browser.safebrowsing.malware.enabled", Boolean.FALSE);
