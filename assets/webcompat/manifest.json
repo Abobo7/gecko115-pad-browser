@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "GeckoPad Modern WebCompat Polyfills",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "ES2024-ES2026 & Intl.Segmenter compatibility layer for GeckoView 115 on Android 4.4 KitKat.",
   "browser_specific_settings": {
     "gecko": {

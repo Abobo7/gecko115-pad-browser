@@ -1636,7 +1636,7 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
     private void showAboutDialog() {
         boolean hw = store.isForceHardwareWebRender();
         new AlertDialog.Builder(this)
-                .setTitle("GeckoPad 极速平板浏览器 v1.1")
+                .setTitle("GeckoPad 极速平板浏览器 v1.2.1")
                 .setMessage("内核版本：Mozilla GeckoView 115.0.20230726201356 (Firefox 115 ESR)\n"
                         + "当前光栅：" + (hw ? "Tegra K1 硬件 WebRender (OpenGL ES 3.1 + WebGL 2)" : "SWGL NEON 软件光栅") + "\n"
                         + "证书加密：内置 Mozilla NSS TLS 1.3 + 独立现代根证书库\n"

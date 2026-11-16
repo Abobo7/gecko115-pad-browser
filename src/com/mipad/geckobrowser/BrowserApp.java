@@ -74,18 +74,42 @@ public final class BrowserApp {
                 injectInitialPref(settings, "gfx.webrender.software", Boolean.TRUE);
             }
 
-            // 3. Disable Android FIDO2 WebAuthn backend, enable CSS :has(), & support OAuth popup window.close() + 3 content processes
+            // 3. Disable Android FIDO2 WebAuthn backend, enable CSS :has(), & support OAuth popup window.close()
             injectInitialPref(settings, "security.webauth.webauthn_enable_android_fido2", Boolean.FALSE);
             injectInitialPref(settings, "layout.css.has-selector.enabled", Boolean.TRUE);
             injectInitialPref(settings, "dom.allow_scripts_to_close_windows", Boolean.TRUE);
+            injectInitialPref(settings, "dom.ipc.processPrelaunch.enabled", Boolean.FALSE);
             try {
                 Method setPc = GeckoRuntimeSettings.class.getDeclaredMethod("setProcessCount", int.class);
                 setPc.setAccessible(true);
-                setPc.invoke(settings, Integer.valueOf(3));
+                setPc.invoke(settings, Integer.valueOf(2));
             } catch (Throwable ignored) {
             }
 
-            // 4. Silence background telemetry, add-on checks, and RemoteSettings sync spikes on 2GB RAM
+            // 4. Dual-stack TUN VPN leak & CDN image concurrency fixes (X / pbs.twimg.com / Fastly):
+            //    - Android 4.4 TUN proxies (v2rayNG / hev-socks5-tunnel) route IPv4 only while Wi-Fi RAs assign
+            //      ISP public IPv6, causing dual-stack CDNs (pbs.twimg.com -> 2a04:4e42::/32) to bypass TUN and fail TLS.
+            //    - Disable HTTP/3 QUIC over UDP:443 to prevent stream blackholes across socks5/TUN tunnels.
+            injectInitialPref(settings, "network.dns.disableIPv6", Boolean.TRUE);
+            injectInitialPref(settings, "network.connectivity-service.enabled", Boolean.FALSE);
+            injectInitialPref(settings, "network.http.http3.enable", Boolean.FALSE);
+            injectInitialPref(settings, "network.http.max-persistent-connections-per-server", Integer.valueOf(12));
+            injectInitialPref(settings, "network.http.max-persistent-connections-per-proxy", Integer.valueOf(32));
+            injectInitialPref(settings, "network.http.pacing.requests.enabled", Boolean.FALSE);
+
+            // 5. Image cache & SurfaceCache tuning for timeline-heavy sites (stock GeckoView defaults to 1 MB!):
+            injectInitialPref(settings, "image.cache.size", Integer.valueOf(33554432)); // 32 MB compressed image cache
+            injectInitialPref(settings, "image.mem.surfacecache.max_size_kb", Integer.valueOf(131072)); // 128 MB decoded surface cap
+            injectInitialPref(settings, "image.mem.surfacecache.min_expiration_ms", Integer.valueOf(120000)); // retain 120s across scrolls
+            injectInitialPref(settings, "image.mem.decode_bytes_at_a_time", Integer.valueOf(65536));
+            injectInitialPref(settings, "browser.cache.memory.enable", Boolean.TRUE);
+            injectInitialPref(settings, "browser.cache.memory.capacity", Integer.valueOf(32768)); // 32 MB HTTP memory cache
+            injectInitialPref(settings, "browser.cache.memory.max_entry_size", Integer.valueOf(8192)); // 8 MB max single asset
+            injectInitialPref(settings, "browser.cache.disk.enable", Boolean.TRUE);
+            injectInitialPref(settings, "browser.cache.disk_cache_ssl", Boolean.TRUE);
+            injectInitialPref(settings, "browser.cache.disk.capacity", Integer.valueOf(102400)); // 100 MB persistent HTTPS disk cache
+
+            // 6. Silence background telemetry, add-on checks, and RemoteSettings sync spikes on 2GB RAM
             injectInitialPref(settings, "datareporting.policy.dataSubmissionEnabled", Boolean.FALSE);
             injectInitialPref(settings, "extensions.systemAddon.update.enabled", Boolean.FALSE);
             injectInitialPref(settings, "browser.safebrowsing.malware.enabled", Boolean.FALSE);

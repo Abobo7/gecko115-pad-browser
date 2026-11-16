@@ -1,17 +1,31 @@
 (function () {
   "use strict";
 
-  const PAGE_POLYFILL = `
-(function () {
-  "use strict";
+  // Pure Xray exportFunction + cloneInto WebCompat injection (zero eval / zero inline <script>):
+  // Works cleanly on strict nonce-CSP sites (x.com, accounts.google.com, github.com, etc.)
+  // without triggering Content-Security-Policy script-src violations or Xray compartment errors.
+  const pageWin = window.wrappedJSObject;
+  if (pageWin && typeof exportFunction === "function" && typeof cloneInto === "function") {
+    try {
+      installSegmenter(pageWin);
+      installPromiseWithResolvers(pageWin);
+      installGroupBy(pageWin);
+      installUrlParse(pageWin);
+      installSetMethods(pageWin);
+    } catch (_) {}
+  }
 
-  // 1. ECMA-402 Intl.Segmenter (Required by X / Twitter 2026 web login & composer)
-  if (typeof Intl !== "undefined" && typeof Intl.Segmenter !== "function") {
+  // Automatic transient-failure recovery for X / Twitter CDN images (pbs.twimg.com / abs.twimg.com)
+  installTwimgAutoRetry();
+
+  function installSegmenter(pw) {
+    if (!pw.Intl || typeof pw.Intl.Segmenter === "function") return;
+
     const VALID_GRANULARITIES = new Set(["grapheme", "word", "sentence"]);
-    const GRAPHEME_RE = /(?:\\p{Regional_Indicator}{2})|(?:\\p{Extended_Pictographic}(?:\\p{Emoji_Modifier}|\\uFE0F|\\u20E3)*(?:\\u200D\\p{Extended_Pictographic}(?:\\p{Emoji_Modifier}|\\uFE0F|\\u20E3)*)*)|(?:\\r\\n|[\\r\\n]|[\\s\\S][\\p{Mark}\\u200D\\uFE0E\\uFE0F]*)/gu;
-    const WORD_RE = /[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}]|[\\p{L}\\p{N}_]+(?:['\\u2019\\-][\\p{L}\\p{N}_]+)*|\\s+|[^\\s\\p{L}\\p{N}_]/gu;
-    const WORD_LIKE_RE = /[\\p{L}\\p{N}_]/u;
-    const SENTENCE_RE = /[^.!?\\u3002\\uFF01\\uFF1F\\r\\n]+(?:[.!?\\u3002\\uFF01\\uFF1F]+['"\\u201D\\u2019)\\]]*\\s*|\\r?\\n|$)|\\r?\\n/gu;
+    const GRAPHEME_RE = /(?:\p{Regional_Indicator}{2})|(?:\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\uFE0F|\u20E3)*(?:\u200D\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\uFE0F|\u20E3)*)*)|(?:\r\n|[\r\n]|[\s\S][\p{Mark}\u200D\uFE0E\uFE0F]*)/gu;
+    const WORD_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]|[\p{L}\p{N}_]+(?:['\u2019\-][\p{L}\p{N}_]+)*|\s+|[^\s\p{L}\p{N}_]/gu;
+    const WORD_LIKE_RE = /[\p{L}\p{N}_]/u;
+    const SENTENCE_RE = /[^.!?\u3002\uFF01\uFF1F\r\n]+(?:[.!?\u3002\uFF01\uFF1F]+['"\u201D\u2019)\]]*\s*|\r?\n|$)|\r?\n/gu;
 
     function computeSegments(str, granularity) {
       const list = [];
@@ -40,24 +54,22 @@
       return list;
     }
 
-    class Segments {
-      constructor(str, granularity) {
-        this._str = str;
-        this._granularity = granularity;
-        this._cache = null;
+    function makeSegmentsObject(str, granularity) {
+      let cached = null;
+      function ensure() {
+        if (!cached) cached = computeSegments(str, granularity);
+        return cached;
       }
-      _ensure() {
-        if (!this._cache) {
-          this._cache = computeSegments(this._str, this._granularity);
-        }
-        return this._cache;
-      }
-      containing(codeUnitIndex = 0) {
-        let n = Math.trunc(Number(codeUnitIndex));
+
+      const segsObj = new pw.Object();
+
+      const containingFn = exportFunction(function containing(codeUnitIndex) {
+        let n = codeUnitIndex === undefined ? 0 : Math.trunc(Number(codeUnitIndex));
         if (Number.isNaN(n)) n = 0;
-        if (n < 0 || n >= this._str.length) return undefined;
-        const arr = this._ensure();
-        let lo = 0, hi = arr.length - 1;
+        if (n < 0 || n >= str.length) return undefined;
+        const arr = ensure();
+        let lo = 0;
+        let hi = arr.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >>> 1;
           const item = arr[mid];
@@ -67,257 +79,320 @@
           } else if (n >= end) {
             lo = mid + 1;
           } else {
-            const out = { segment: item.segment, index: item.index, input: this._str };
-            if (this._granularity === "word") out.isWordLike = item.isWordLike;
-            return out;
+            return cloneInto(item, pw);
           }
         }
         return undefined;
+      }, pw);
+
+      const iterSym = pw.Symbol && pw.Symbol.iterator ? pw.Symbol.iterator : Symbol.iterator;
+      const iteratorFn = exportFunction(function iterator() {
+        const arr = ensure();
+        let idx = 0;
+        const iterObj = new pw.Object();
+        const nextFn = exportFunction(function next() {
+          if (idx < arr.length) {
+            return cloneInto({ value: arr[idx++], done: false }, pw);
+          }
+          return cloneInto({ value: undefined, done: true }, pw);
+        }, pw);
+        pw.Object.defineProperty(iterObj, "next", {
+          value: nextFn,
+          writable: true,
+          configurable: true
+        });
+        pw.Object.defineProperty(iterObj, iterSym, {
+          value: exportFunction(function selfIter() { return iterObj; }, pw),
+          writable: true,
+          configurable: true
+        });
+        return iterObj;
+      }, pw);
+
+      pw.Object.defineProperty(segsObj, "containing", {
+        value: containingFn,
+        writable: true,
+        configurable: true
+      });
+      pw.Object.defineProperty(segsObj, iterSym, {
+        value: iteratorFn,
+        writable: true,
+        configurable: true
+      });
+      return segsObj;
+    }
+
+    const SegmenterCtor = exportFunction(function Segmenter(locales, options) {
+      let gran = "grapheme";
+      let localeMatcher = "best fit";
+      if (options !== undefined && options !== null) {
+        if (options.localeMatcher !== undefined) {
+          localeMatcher = String(options.localeMatcher);
+        }
+        if (options.granularity !== undefined) {
+          gran = String(options.granularity);
+          if (!VALID_GRANULARITIES.has(gran)) {
+            throw new pw.RangeError("Invalid granularity: " + gran);
+          }
+        }
       }
-      *[Symbol.iterator]() {
-        const arr = this._ensure();
+      let resolvedLocale = "zh-CN";
+      try {
+        resolvedLocale = new Intl.Collator(locales, { localeMatcher: localeMatcher }).resolvedOptions().locale;
+      } catch (_) {}
+
+      const inst = new pw.Object();
+      try {
+        if (SegmenterCtor && SegmenterCtor.prototype) {
+          pw.Object.setPrototypeOf(inst, SegmenterCtor.prototype);
+        }
+      } catch (_) {}
+      pw.Object.defineProperty(inst, "segment", {
+        value: exportFunction(function segment(input) {
+          return makeSegmentsObject(String(input), gran);
+        }, pw),
+        writable: true,
+        configurable: true
+      });
+      pw.Object.defineProperty(inst, "resolvedOptions", {
+        value: exportFunction(function resolvedOptions() {
+          return cloneInto({ locale: resolvedLocale, granularity: gran }, pw);
+        }, pw),
+        writable: true,
+        configurable: true
+      });
+      return inst;
+    }, pw);
+
+    pw.Object.defineProperty(SegmenterCtor, "supportedLocalesOf", {
+      value: exportFunction(function supportedLocalesOf(locales, options) {
+        try {
+          const res = Intl.Collator.supportedLocalesOf(locales, options ? cloneInto(options, window) : undefined);
+          return cloneInto(res, pw);
+        } catch (_) {
+          return cloneInto(["zh-CN", "en-US"], pw);
+        }
+      }, pw),
+      writable: true,
+      configurable: true
+    });
+
+    pw.Object.defineProperty(pw.Intl, "Segmenter", {
+      value: SegmenterCtor,
+      writable: true,
+      configurable: true
+    });
+  }
+
+  function installPromiseWithResolvers(pw) {
+    if (!pw.Promise || typeof pw.Promise.withResolvers === "function") return;
+    const fn = exportFunction(function withResolvers() {
+      let resolveFn, rejectFn;
+      const promise = new pw.Promise(exportFunction(function executor(res, rej) {
+        resolveFn = res;
+        rejectFn = rej;
+      }, pw));
+      const out = new pw.Object();
+      out.promise = promise;
+      out.resolve = resolveFn;
+      out.reject = rejectFn;
+      return out;
+    }, pw);
+    pw.Object.defineProperty(pw.Promise, "withResolvers", {
+      value: fn,
+      writable: true,
+      configurable: true
+    });
+  }
+
+  function installGroupBy(pw) {
+    if (pw.Object && typeof pw.Object.groupBy !== "function") {
+      const objGroupBy = exportFunction(function groupBy(items, callbackFn) {
+        if (items == null) throw new pw.TypeError("Object.groupBy called on null or undefined");
+        if (typeof callbackFn !== "function") throw new pw.TypeError("callbackFn must be a function");
+        const out = pw.Object.create(null);
+        const arr = pw.Array.from(items);
         for (let i = 0; i < arr.length; i++) {
           const item = arr[i];
-          const out = { segment: item.segment, index: item.index, input: this._str };
-          if (this._granularity === "word") out.isWordLike = item.isWordLike;
-          yield out;
-        }
-      }
-    }
-
-    class Segmenter {
-      constructor(locales, options) {
-        let gran = "grapheme";
-        let localeMatcher = "best fit";
-        if (options !== undefined) {
-          const optObj = Object(options);
-          if (optObj.localeMatcher !== undefined) {
-            localeMatcher = String(optObj.localeMatcher);
+          const rawKey = callbackFn(item, i);
+          const key = typeof rawKey === "symbol" ? rawKey : String(rawKey);
+          if (out[key] === undefined) {
+            const bucket = new pw.Array();
+            bucket.push(item);
+            out[key] = bucket;
+          } else {
+            out[key].push(item);
           }
-          if (optObj.granularity !== undefined) {
-            gran = String(optObj.granularity);
-            if (!VALID_GRANULARITIES.has(gran)) {
-              throw new RangeError("Invalid granularity: " + gran);
-            }
-          }
-        }
-        let resolvedLocale = "zh-CN";
-        try {
-          resolvedLocale = new Intl.Collator(locales, { localeMatcher }).resolvedOptions().locale;
-        } catch (_) {}
-        this._locale = resolvedLocale;
-        this._granularity = gran;
-      }
-      segment(input) {
-        const str = String(input);
-        return new Segments(str, this._granularity);
-      }
-      resolvedOptions() {
-        return { locale: this._locale, granularity: this._granularity };
-      }
-      static supportedLocalesOf(locales, options) {
-        return Intl.Collator.supportedLocalesOf(locales, options);
-      }
-    }
-
-    Object.defineProperty(Segmenter.prototype, Symbol.toStringTag, {
-      value: "Intl.Segmenter",
-      configurable: true
-    });
-    Object.defineProperty(Intl, "Segmenter", {
-      value: Segmenter,
-      writable: true,
-      configurable: true
-    });
-  }
-
-  // 2. ES2024 Promise.withResolvers
-  if (typeof Promise.withResolvers !== "function") {
-    Object.defineProperty(Promise, "withResolvers", {
-      value: function withResolvers() {
-        let resolve, reject;
-        const promise = new this((res, rej) => {
-          resolve = res;
-          reject = rej;
-        });
-        return { promise, resolve, reject };
-      },
-      writable: true,
-      configurable: true
-    });
-  }
-
-  // 3. ES2024 Object.groupBy & Map.groupBy
-  if (typeof Object.groupBy !== "function") {
-    Object.defineProperty(Object, "groupBy", {
-      value: function groupBy(items, callbackFn) {
-        if (items == null) throw new TypeError("Object.groupBy called on null or undefined");
-        if (typeof callbackFn !== "function") throw new TypeError("callbackFn must be a function");
-        const out = Object.create(null);
-        let idx = 0;
-        for (const item of items) {
-          const key = PropertyKey(callbackFn(item, idx++));
-          if (out[key] === undefined) out[key] = [item];
-          else out[key].push(item);
         }
         return out;
-      },
-      writable: true,
-      configurable: true
-    });
-    function PropertyKey(v) {
-      return typeof v === "symbol" ? v : String(v);
+      }, pw);
+      pw.Object.defineProperty(pw.Object, "groupBy", {
+        value: objGroupBy,
+        writable: true,
+        configurable: true
+      });
+    }
+
+    if (pw.Map && typeof pw.Map.groupBy !== "function") {
+      const mapGroupBy = exportFunction(function groupBy(items, callbackFn) {
+        if (items == null) throw new pw.TypeError("Map.groupBy called on null or undefined");
+        if (typeof callbackFn !== "function") throw new pw.TypeError("callbackFn must be a function");
+        const map = new pw.Map();
+        const arr = pw.Array.from(items);
+        for (let i = 0; i < arr.length; i++) {
+          const item = arr[i];
+          const key = callbackFn(item, i);
+          let bucket = map.get(key);
+          if (bucket === undefined) {
+            bucket = new pw.Array();
+            bucket.push(item);
+            map.set(key, bucket);
+          } else {
+            bucket.push(item);
+          }
+        }
+        return map;
+      }, pw);
+      pw.Object.defineProperty(pw.Map, "groupBy", {
+        value: mapGroupBy,
+        writable: true,
+        configurable: true
+      });
     }
   }
 
-  if (typeof Map !== "undefined" && typeof Map.groupBy !== "function") {
-    Object.defineProperty(Map, "groupBy", {
-      value: function groupBy(items, callbackFn) {
-        if (items == null) throw new TypeError("Map.groupBy called on null or undefined");
-        if (typeof callbackFn !== "function") throw new TypeError("callbackFn must be a function");
-        const map = new Map();
-        let idx = 0;
-        for (const item of items) {
-          const key = callbackFn(item, idx++);
-          const list = map.get(key);
-          if (list === undefined) map.set(key, [item]);
-          else list.push(item);
-        }
-        return map;
-      },
-      writable: true,
-      configurable: true
-    });
-  }
-
-  // 4. WHATWG URL.parse (2024)
-  if (typeof URL !== "undefined" && typeof URL.parse !== "function") {
-    Object.defineProperty(URL, "parse", {
-      value: function parse(url, base) {
-        try {
-          return base !== undefined ? new URL(url, base) : new URL(url);
-        } catch (_) {
-          return null;
-        }
-      },
-      writable: true,
-      configurable: true
-    });
-  }
-
-  // 5. ES2025 Set methods
-  if (typeof Set !== "undefined" && typeof Set.prototype.union !== "function") {
-    const proto = Set.prototype;
-    Object.defineProperties(proto, {
-      union: {
-        value: function union(other) {
-          const res = new Set(this);
-          for (const v of other.keys()) res.add(v);
-          return res;
-        },
-        writable: true,
-        configurable: true
-      },
-      intersection: {
-        value: function intersection(other) {
-          const res = new Set();
-          for (const v of this) {
-            if (other.has(v)) res.add(v);
-          }
-          return res;
-        },
-        writable: true,
-        configurable: true
-      },
-      difference: {
-        value: function difference(other) {
-          const res = new Set(this);
-          for (const v of other.keys()) res.delete(v);
-          return res;
-        },
-        writable: true,
-        configurable: true
-      },
-      symmetricDifference: {
-        value: function symmetricDifference(other) {
-          const res = new Set(this);
-          for (const v of other.keys()) {
-            if (this.has(v)) res.delete(v);
-            else res.add(v);
-          }
-          return res;
-        },
-        writable: true,
-        configurable: true
-      },
-      isSubsetOf: {
-        value: function isSubsetOf(other) {
-          if (this.size > other.size) return false;
-          for (const v of this) {
-            if (!other.has(v)) return false;
-          }
-          return true;
-        },
-        writable: true,
-        configurable: true
-      },
-      isSupersetOf: {
-        value: function isSupersetOf(other) {
-          if (this.size < other.size) return false;
-          for (const v of other.keys()) {
-            if (!this.has(v)) return false;
-          }
-          return true;
-        },
-        writable: true,
-        configurable: true
-      },
-      isDisjointFrom: {
-        value: function isDisjointFrom(other) {
-          for (const v of this) {
-            if (other.has(v)) return false;
-          }
-          return true;
-        },
-        writable: true,
-        configurable: true
+  function installUrlParse(pw) {
+    if (!pw.URL || typeof pw.URL.parse === "function") return;
+    const fn = exportFunction(function parse(url, base) {
+      try {
+        return base !== undefined ? new pw.URL(url, base) : new pw.URL(url);
+      } catch (_) {
+        return null;
       }
+    }, pw);
+    pw.Object.defineProperty(pw.URL, "parse", {
+      value: fn,
+      writable: true,
+      configurable: true
     });
   }
-})();
-`;
 
-  try {
-    // Firefox content-script window.eval executes directly in the page global compartment, bypassing page CSP
-    window.eval(PAGE_POLYFILL);
-  } catch (err) {
+  function installSetMethods(pw) {
+    if (!pw.Set || !pw.Set.prototype || typeof pw.Set.prototype.union === "function") return;
+    const proto = pw.Set.prototype;
+    const defs = {
+      union: function union(other) {
+        const res = new pw.Set(this);
+        const iter = pw.Array.from(other.keys());
+        for (let i = 0; i < iter.length; i++) res.add(iter[i]);
+        return res;
+      },
+      intersection: function intersection(other) {
+        const res = new pw.Set();
+        const iter = pw.Array.from(this);
+        for (let i = 0; i < iter.length; i++) {
+          if (other.has(iter[i])) res.add(iter[i]);
+        }
+        return res;
+      },
+      difference: function difference(other) {
+        const res = new pw.Set(this);
+        const iter = pw.Array.from(other.keys());
+        for (let i = 0; i < iter.length; i++) res.delete(iter[i]);
+        return res;
+      },
+      symmetricDifference: function symmetricDifference(other) {
+        const res = new pw.Set(this);
+        const iter = pw.Array.from(other.keys());
+        for (let i = 0; i < iter.length; i++) {
+          const v = iter[i];
+          if (this.has(v)) res.delete(v);
+          else res.add(v);
+        }
+        return res;
+      },
+      isSubsetOf: function isSubsetOf(other) {
+        if (this.size > other.size) return false;
+        const iter = pw.Array.from(this);
+        for (let i = 0; i < iter.length; i++) {
+          if (!other.has(iter[i])) return false;
+        }
+        return true;
+      },
+      isSupersetOf: function isSupersetOf(other) {
+        if (this.size < other.size) return false;
+        const iter = pw.Array.from(other.keys());
+        for (let i = 0; i < iter.length; i++) {
+          if (!this.has(iter[i])) return false;
+        }
+        return true;
+      },
+      isDisjointFrom: function isDisjointFrom(other) {
+        const iter = pw.Array.from(this);
+        for (let i = 0; i < iter.length; i++) {
+          if (other.has(iter[i])) return false;
+        }
+        return true;
+      }
+    };
+    const names = Object.keys(defs);
+    for (let i = 0; i < names.length; i++) {
+      const k = names[i];
+      pw.Object.defineProperty(proto, k, {
+        value: exportFunction(defs[k], pw),
+        writable: true,
+        configurable: true
+      });
+    }
+  }
+
+  function installTwimgAutoRetry() {
+    let host = "";
     try {
-      const pageWin = window.wrappedJSObject;
-      if (pageWin && pageWin.Intl && typeof pageWin.Intl.Segmenter !== "function" && typeof exportFunction === "function" && typeof cloneInto === "function") {
-        // Fallback via Xray exportFunction + cloneInto if window.eval was ever restricted
-        const SegmenterFallback = exportFunction(function (locales, options) {
-          const gran = (options && options.granularity) ? String(options.granularity) : "grapheme";
-          return cloneInto({
-            segment: function (input) {
-              const s = String(input);
-              const chars = Array.from(s);
-              let pos = 0;
-              const items = chars.map(function (ch) {
-                const it = gran === "word"
-                  ? { segment: ch, index: pos, input: s, isWordLike: /[\p{L}\p{N}_]/u.test(ch) }
-                  : { segment: ch, index: pos, input: s };
-                pos += ch.length;
-                return it;
-              });
-              return items;
-            },
-            resolvedOptions: function () {
-              return { locale: "zh-CN", granularity: gran };
+      host = location.hostname || "";
+    } catch (_) {
+      return;
+    }
+    if (!/(^|\.)(x|twitter)\.com$/i.test(host)) return;
+
+    window.addEventListener("error", function onImgError(ev) {
+      const el = ev && ev.target;
+      if (!el || el.tagName !== "IMG") return;
+      const src = el.getAttribute("src") || el.src || "";
+      if (!/^https:\/\/([a-z0-9-]+\.)?twimg\.com\//i.test(src)) return;
+
+      const count = parseInt(el.getAttribute("data-gp-retry") || "0", 10) || 0;
+      if (count >= 2) return;
+      el.setAttribute("data-gp-retry", String(count + 1));
+
+      const origSrcset = el.getAttribute("srcset");
+      const delay = (count + 1) * 900;
+      setTimeout(function () {
+        if (!el.isConnected) return;
+        if (el.complete && el.naturalWidth > 0) return;
+
+        el.addEventListener("load", function syncBgOnce() {
+          try {
+            const parent = el.parentElement;
+            if (parent) {
+              const prev = el.previousElementSibling;
+              if (prev && prev.tagName === "DIV") {
+                const bg = prev.style && prev.style.backgroundImage;
+                if (!bg || bg === "none" || bg === "") {
+                  prev.style.backgroundImage = 'url("' + (el.currentSrc || src).replace(/"/g, "%22") + '")';
+                }
+              }
             }
-          }, pageWin, { cloneFunctions: true });
-        }, pageWin);
-        pageWin.Intl.Segmenter = SegmenterFallback;
-      }
-    } catch (_) {}
+          } catch (_) {}
+        }, { once: true });
+
+        if (origSrcset) el.removeAttribute("srcset");
+        el.removeAttribute("src");
+        requestAnimationFrame(function () {
+          if (origSrcset) el.setAttribute("srcset", origSrcset);
+          el.setAttribute("src", src);
+        });
+      }, delay);
+    }, true);
   }
 })();
