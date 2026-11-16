@@ -102,7 +102,15 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
         runtime.attachTo(this);
 
         buildUi();
-        restoreOrInitTabs(getIntent());
+        final Intent initIntent = getIntent();
+        BrowserApp.runWhenWebCompatReady(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing() && tabs.isEmpty()) {
+                    restoreOrInitTabs(initIntent);
+                }
+            }
+        });
     }
 
     @Override
@@ -118,7 +126,7 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
     @Override
     protected void onPause() {
         super.onPause();
-        if (store != null) {
+        if (store != null && !tabs.isEmpty()) {
             store.saveTabs(tabs, activeTabIndex);
         }
     }

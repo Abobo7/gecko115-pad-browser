@@ -159,6 +159,14 @@ cp "$BUILD_DIR/dex/"*.dex "$BUILD_DIR/apk_stage/"
   cd "$BUILD_DIR/apk_stage"
   "$JDK_BIN/jar.exe" uf "$BUILD_DIR/with_libs.apk" classes*.dex lib
 )
+if [ -d "$PROJECT_DIR/assets" ]; then
+  mkdir -p "$BUILD_DIR/apk_assets/assets"
+  cp -r "$PROJECT_DIR/assets/"* "$BUILD_DIR/apk_assets/assets/"
+  (
+    cd "$BUILD_DIR/apk_assets"
+    "$JDK_BIN/jar.exe" u0f "$BUILD_DIR/with_libs.apk" assets
+  )
+fi
 
 echo "[7/7] Zipaligning (4-byte alignment for STORED omni.ja) & V1+V2 signing..."
 KEYSTORE="$PROJECT_DIR/tools/debug.keystore"
