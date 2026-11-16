@@ -66,8 +66,15 @@ public final class BrowserApp {
                 injectInitialPref(settings, "gfx.webrender.software", Boolean.TRUE);
             }
 
-            // 3. Disable Android FIDO2 WebAuthn backend (Android 4.4 lacks GMS FIDO2 APIs; prevents crash on Google Sign-In)
+            // 3. Disable Android FIDO2 WebAuthn backend & support OAuth popup window.close() + 3 content processes
             injectInitialPref(settings, "security.webauth.webauthn_enable_android_fido2", Boolean.FALSE);
+            injectInitialPref(settings, "dom.allow_scripts_to_close_windows", Boolean.TRUE);
+            try {
+                Method setPc = GeckoRuntimeSettings.class.getDeclaredMethod("setProcessCount", int.class);
+                setPc.setAccessible(true);
+                setPc.invoke(settings, Integer.valueOf(3));
+            } catch (Throwable ignored) {
+            }
 
             // 4. Silence background telemetry, add-on checks, and RemoteSettings sync spikes on 2GB RAM
             injectInitialPref(settings, "datareporting.policy.dataSubmissionEnabled", Boolean.FALSE);

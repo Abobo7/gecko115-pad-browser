@@ -29,7 +29,7 @@ public final class SessionDelegates {
         BrowserTab getActiveTab();
         void onTabUpdated(BrowserTab tab, boolean rebuildStrip);
         void onProgressUpdated(BrowserTab tab);
-        BrowserTab createPopupTab(String uri, boolean isPrivate, boolean desktopMode);
+        BrowserTab createPopupTab(BrowserTab openerTab, String uri, boolean isPrivate, boolean desktopMode);
         void loadInActiveTab(String url);
         void closeTabObject(BrowserTab tab);
         void setFullScreenMode(boolean fullScreen);
@@ -102,7 +102,7 @@ public final class SessionDelegates {
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession s, String uri) {
-                BrowserTab popup = host.createPopupTab(uri, tab.isPrivate, tab.desktopMode);
+                BrowserTab popup = host.createPopupTab(tab, uri, tab.isPrivate, tab.desktopMode);
                 return GeckoResult.fromValue(popup.session);
             }
 

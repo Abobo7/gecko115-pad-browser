@@ -245,7 +245,7 @@ public class BrowserStore {
         int count = 0;
         for (int i = 0; i < tabs.size(); i++) {
             BrowserTab t = tabs.get(i);
-            if (t.isPrivate) continue;
+            if (t.isPrivate || (t.isPopup && "about:blank".equals(t.url))) continue;
             try {
                 JSONObject obj = new JSONObject();
                 obj.put("title", t.title != null ? t.title : "新标签页");

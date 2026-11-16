@@ -226,15 +226,34 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
     }
 
     @Override
-    public BrowserTab createPopupTab(String uri, boolean isPrivate, boolean desktopMode) {
-        BrowserTab tab = new BrowserTab(isPrivate, desktopMode,
+    public BrowserTab createPopupTab(final BrowserTab openerTab, String uri, boolean isPrivate, boolean desktopMode) {
+        final BrowserTab popup = new BrowserTab(isPrivate, desktopMode,
                 (uri == null || uri.isEmpty()) ? "about:blank" : uri);
-        tab.isHomePage = false;
-        ensureSessionReady(tab);
-        tabs.add(tab);
-        switchToTab(tabs.size() - 1);
-        store.saveTabs(tabs, activeTabIndex);
-        return tab;
+        popup.isHomePage = false;
+        popup.isPopup = true;
+        popup.openerTab = openerTab;
+        // CRITICAL: GeckoView NavigationDelegate.onNewSession requires an UNOPENED GeckoSession!
+        // GeckoSession$4 calls popup.session.open(runtime, newSessionId) internally to bind window.opener.
+        popup.session = createUnopenedSession(popup);
+        tabs.add(popup);
+        rebuildTabStrip();
+
+        geckoView.post(new Runnable() {
+            private int attempts = 0;
+
+            @Override
+            public void run() {
+                int idx = tabs.indexOf(popup);
+                if (idx < 0) return;
+                if (popup.session != null && popup.session.isOpen()) {
+                    switchToTab(idx);
+                    store.saveTabs(tabs, activeTabIndex);
+                } else if (attempts++ < 50) {
+                    geckoView.postDelayed(this, 16L);
+                }
+            }
+        });
+        return popup;
     }
 
     @Override
@@ -826,23 +845,28 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
         return tab;
     }
 
+    private GeckoSession createUnopenedSession(BrowserTab tab) {
+        GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
+                .usePrivateMode(tab.isPrivate)
+                .useTrackingProtection(store.isTrackingProtectionEnabled())
+                .suspendMediaWhenInactive(true)
+                .allowJavascript(true)
+                .userAgentMode(tab.desktopMode
+                        ? GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+                        : GeckoSessionSettings.USER_AGENT_MODE_MOBILE)
+                .viewportMode(tab.desktopMode
+                        ? GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+                        : GeckoSessionSettings.VIEWPORT_MODE_MOBILE)
+                .displayMode(GeckoSessionSettings.DISPLAY_MODE_BROWSER)
+                .build();
+        GeckoSession session = new GeckoSession(settings);
+        SessionDelegates.attach(this, tab, session);
+        return session;
+    }
+
     private void ensureSessionReady(BrowserTab tab) {
         if (tab.session == null) {
-            GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
-                    .usePrivateMode(tab.isPrivate)
-                    .useTrackingProtection(store.isTrackingProtectionEnabled())
-                    .suspendMediaWhenInactive(true)
-                    .allowJavascript(true)
-                    .userAgentMode(tab.desktopMode
-                            ? GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
-                            : GeckoSessionSettings.USER_AGENT_MODE_MOBILE)
-                    .viewportMode(tab.desktopMode
-                            ? GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
-                            : GeckoSessionSettings.VIEWPORT_MODE_MOBILE)
-                    .displayMode(GeckoSessionSettings.DISPLAY_MODE_BROWSER)
-                    .build();
-            tab.session = new GeckoSession(settings);
-            SessionDelegates.attach(this, tab, tab.session);
+            tab.session = createUnopenedSession(tab);
         }
         if (!tab.session.isOpen()) {
             tab.session.open(runtime);
@@ -852,14 +876,17 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
         BrowserTab prev = getActiveTab();
-        if (prev != null && prev != tabs.get(index) && prev.session != null && prev.session.isOpen()) {
+        BrowserTab current = tabs.get(index);
+        if (prev != null && prev != current && prev.session != null && prev.session.isOpen()) {
             prev.session.setFocused(false);
-            prev.session.setActive(false);
-            prev.session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
+            // Keep opener tab active while its OAuth popup (e.g. Sign in with Google on X) is open
+            if (current.openerTab != prev) {
+                prev.session.setActive(false);
+                prev.session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
+            }
         }
 
         activeTabIndex = index;
-        BrowserTab current = tabs.get(index);
 
         if (current.isHomePage) {
             geckoView.releaseSession();
@@ -905,6 +932,15 @@ public class MainActivity extends Activity implements SessionDelegates.Host {
             activeTabIndex = -1;
             createNewTab("about:home", false, true);
             return;
+        }
+        if (removed.openerTab != null) {
+            int openerIdx = tabs.indexOf(removed.openerTab);
+            if (openerIdx >= 0) {
+                activeTabIndex = openerIdx;
+                switchToTab(activeTabIndex);
+                store.saveTabs(tabs, activeTabIndex);
+                return;
+            }
         }
         if (activeTabIndex >= tabs.size()) activeTabIndex = tabs.size() - 1;
         else if (index < activeTabIndex) activeTabIndex--;
