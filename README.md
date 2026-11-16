@@ -12,11 +12,11 @@
   - 使用 `d8 --min-api 19` 将 GeckoView、ExoPlayer2、Kotlin 标准库、AndroidX 与业务代码收敛进单一 `classes.dex`（`6.6 MB`），避免 `:tab0..39` 内容进程 MultiDex 崩溃；
   - `assets/omni.ja` 保持 `Stored` (`0%` 不压缩) 配合 4 字节 `zipalign` 直接 `mmap`；
   - 独立引导类 `BootstrapApp` 仅引用系统引导类库，在 `attachBaseContext` 阶段注入 `SlashCompatLoader` 将 JNI `'/'` 类名规范化为 `'.'`，消除 Dalvik `dvmFindClassByName rejecting` 且不触发 `CLASS_ISPREVERIFIED` 冲突。
-- **Google 登录、OAuth 弹窗与 2026 现代站点兼容（v1.1.1 – v1.2.1）**：
+- **Google 登录、OAuth 弹窗与 2026 现代站点兼容（v1.1.1 – v1.2.2）**：
   - 剥离官方 `gv.jar` 中强依赖新版 GMS FIDO2 的 `WebAuthnTokenManager`，替换为无 GMS 纯净版实现，解决 `accounts.google.com` 登录时的 JNI `SIGSEGV` 闪退；
   - `onNewSession` 返回未打开（unopened）的弹窗 `GeckoSession` 并保持 `openerTab` 存活，打通 Google / X (`x.com`) 等第三方 OAuth `window.opener.postMessage` 授权回传与 `window.close()` 自动切回；
   - 内置 `webcompat@mipad.geckobrowser` 扩展（零 `eval` 纯 Xray `exportFunction` + `cloneInto` 注入，完全兼容 `x.com` / `accounts.google.com` 严格 `nonce` CSP），补齐 `Intl.Segmenter`、`Promise.withResolvers`、`Object.groupBy` / `Map.groupBy`、`URL.parse`、ES2025 `Set` 方法及原生 CSS `:has()`；
-  - 针对 Android 4.4 单栈 IPv4 TUN 代理（如 `v2rayNG`）+ 运营商公网 IPv6 Wi-Fi 环境，默认关闭双栈 IPv6 直连泄漏（`network.dns.disableIPv6 = true`）与 QUIC `UDP 443` 阻塞（`network.http.http3.enable = false`），并将 GeckoView 默认仅 `1 MB` 的图片缓存扩容至 `32 MB` 压缩缓存 + `128 MB` 解码纹理缓存 + `100 MB` HTTPS 磁盘缓存，彻底解决 X (`pbs.twimg.com`) 刷流图片漏加载与滑屏白块问题。
+  - 完整保留原生 IPv4/IPv6 双栈解析（`network.dns.disableIPv6 = false`，配合双栈 TUN 代理实现国内外 IPv6 智能分流），默认关闭常被代理规则拦截的 QUIC `UDP 443`（`network.http.http3.enable = false`）以秒切 HTTP/2 12 路持久并发，并将 GeckoView 默认仅 `1 MB` 的图片缓存扩容至 `32 MB` 压缩缓存 + `128 MB` 解码纹理缓存 + `100 MB` HTTPS 磁盘缓存，彻底解决 X (`pbs.twimg.com`) 刷流图片漏加载与滑屏白块问题。
 - **零广告、零后台常驻、4:3 平板交互**：
   - 顶部桌面级可滚动多标签栏 + 无痕模式，横竖屏切换零重载（起始页横屏 4 列 / 竖屏 3 列）；
   - 一键切换桌面版 / 移动版 UA、书签与历史记录、页内查找、全屏视频沉浸模式、第三方 Scheme（如 `ehviewer://`、`pixiv://`、`bilibili://`）跳回支持，以及继承当前登录态 Cookie 直存 `/sdcard/Download/` 的文件下载器。

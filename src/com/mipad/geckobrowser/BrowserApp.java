@@ -86,11 +86,11 @@ public final class BrowserApp {
             } catch (Throwable ignored) {
             }
 
-            // 4. Dual-stack TUN VPN leak & CDN image concurrency fixes (X / pbs.twimg.com / Fastly):
-            //    - Android 4.4 TUN proxies (v2rayNG / hev-socks5-tunnel) route IPv4 only while Wi-Fi RAs assign
-            //      ISP public IPv6, causing dual-stack CDNs (pbs.twimg.com -> 2a04:4e42::/32) to bypass TUN and fail TLS.
-            //    - Disable HTTP/3 QUIC over UDP:443 to prevent stream blackholes across socks5/TUN tunnels.
-            injectInitialPref(settings, "network.dns.disableIPv6", Boolean.TRUE);
+            // 4. Native Dual-Stack IPv6 + CDN HTTP/2 concurrency tuning (X / pbs.twimg.com / Fastly):
+            //    - Preserve full native IPv6 support (network.dns.disableIPv6 = false) while v2rayNG handles
+            //      dual-stack IPv4+IPv6 TUN routing at the system layer.
+            //    - Disable HTTP/3 QUIC over UDP:443 (which TUN rulesets commonly block) so HTTP/2 connects immediately.
+            injectInitialPref(settings, "network.dns.disableIPv6", Boolean.FALSE);
             injectInitialPref(settings, "network.connectivity-service.enabled", Boolean.FALSE);
             injectInitialPref(settings, "network.http.http3.enable", Boolean.FALSE);
             injectInitialPref(settings, "network.http.max-persistent-connections-per-server", Integer.valueOf(12));
